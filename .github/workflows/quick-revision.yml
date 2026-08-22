@@ -1,0 +1,135 @@
+name: Quick Rule Revision
+run-name: 'Quick rule revision - ${{ github.event_name }}'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mod/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-rules
+  cancel-in-progress: true
+
+jobs:
+  revise-rules:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - name: Show run context
+        env:
+          RUN_TRIGGER: ${{ github.event_name }}
+          RUN_ACTOR: ${{ github.actor }}
+          RUN_REF: ${{ github.ref_name }}
+          RUN_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          short_sha="${RUN_SHA:0:12}"
+          echo "[RUN] trigger=${RUN_TRIGGER} actor=${RUN_ACTOR} ref=${RUN_REF} sha=${short_sha}"
+          echo "[RUN] details=${RUN_URL}"
+
+      - name: Prepare existing artifacts as local sources
+        run: |
+          set -euo pipefail
+          # Keep the complete upstream snapshot already published in the
+          # repository, then layer the changed mod/rules files on top.
+          rm -rf tmp/content tmp/dns
+          mkdir -p tmp/content tmp/dns
+          cp -- adblock.txt tmp/content/repository-adblock.txt
+          cp -- dns.txt tmp/dns/repository-dns.txt
+
+      - name: Build and validate revised artifacts
+        run: >-
+          python3 -u -m script.pipeline build
+          --config config/autoupdate.json
+          --skip-upstream
+          --skip-dns-probe
+          --verbose
+
+      - name: Stage generated artifacts
+        id: stage_artifacts
+        run: |
+          set -euo pipefail
+          echo "::group::[PUBLISH] Stage generated artifacts"
+          trap 'echo "::endgroup::"' EXIT
+          python3 -u -m script.publish_pipeline --config config/autoupdate.json
+          staged_files="$(git diff --cached --name-only)"
+          if [[ -n "$staged_files" ]]; then
+            staged_count="$(printf '%s\n' "$staged_files" | sed '/^$/d' | wc -l | tr -d ' ')"
+            printf '[PUBLISH] staged-files=%s\n%s\n' "$staged_count" "$staged_files"
+          else
+            staged_count=0
+            echo '[PUBLISH] staged-files=0; status=unchanged'
+          fi
+          echo "staged_count=$staged_count" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push generated artifacts
+        id: publish
+        run: |
+          set -euo pipefail
+          echo "::group::[GIT] Commit and push"
+          trap 'echo "::endgroup::"' EXIT
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          changed_files="$(git diff --cached --name-only)"
+          if [[ -z "$changed_files" ]]; then
+            echo '[GIT] no generated changes; main is up to date'
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_count="$(printf '%s\n' "$changed_files" | sed '/^$/d' | wc -l | tr -d ' ')"
+          printf '[GIT] committing %s changed files:\n%s\n' "$changed_count" "$changed_files"
+          commit_message="Revise rules at $(TZ=UTC-8 date +'%Y-%m-%d %H:%M')"
+          git commit -m "$commit_message"
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+
+          if ! git push origin HEAD:main; then
+            echo '::warning::[GIT] Push was rejected; rebasing onto origin/main once'
+            git fetch origin main
+            if git rebase origin/main; then
+              git push origin HEAD:main
+            else
+              git rebase --abort || true
+              echo '[GIT][ERROR] Rebase failed; rerun the workflow' >&2
+              exit 1
+            fi
+          fi
+          echo "commit_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Write workflow summary
+        if: always()
+        env:
+          COMMIT_SHA: ${{ steps.publish.outputs.commit_sha }}
+          STAGED_COUNT: ${{ steps.stage_artifacts.outputs.staged_count }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\n## Quick revision summary\n\n'
+            printf '| Metric | Value |\n| --- | --- |\n'
+            printf '| Source | Existing published artifacts + `mod/**` |\n'
+            printf '| Upstream download | skipped |\n'
+            printf '| DNS inactive probe | skipped (coverage cleanup only) |\n'
+            printf '| Staged files | `%s` |\n' "${STAGED_COUNT:-0}"
+            if [[ -n "${COMMIT_SHA:-}" ]]; then
+              printf '| Published commit | `%s` |\n' "$COMMIT_SHA"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
