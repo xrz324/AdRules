@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "max_workers": 8,
+  "content": [
+    {
+      "name": "cjx",
+      "url": "https://raw.githubusercontent.com/cjx82630/cjxlist/master/cjx-annoyance.txt"
+    },
+    {
+      "name": "damengzhu",
+      "url": "https://raw.githubusercontent.com/damengzhu/banad/main/jiekouAD.txt"
+    },
+    {
+      "name": "clear_urls_uboified",
+      "url": "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/ClearURLs%20for%20uBo/clear_urls_uboified.txt"
+    },
+    {
+      "name": "legitimate_url_shortener",
+      "url": "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/LegitimateURLShortener.txt"
+    },
+    {
+      "name": "adg_filter_17",
+      "url": "https://filters.adtidy.org/extension/ublock/filters/17.txt"
+    },
+    {
+      "name": "easyprivacy",
+      "url": "https://easylist-downloads.adblockplus.org/easyprivacy.txt"
+    },
+    {
+      "name": "antiadblock",
+      "url": "https://easylist-downloads.adblockplus.org/antiadblockfilters.txt"
+    },
+    {
+      "name": "adg_base",
+      "url": "https://filters.adtidy.org/extension/ublock/filters/2.txt"
+    },
+    {
+      "name": "adg_china",
+      "url": "https://filters.adtidy.org/extension/ublock/filters/224.txt"
+    },
+    {
+      "name": "adg_privacy",
+      "url": "https://filters.adtidy.org/extension/ublock/filters/3.txt"
+    },
+    {
+      "name": "adg_annoyance",
+      "url": "https://filters.adtidy.org/extension/ublock/filters/14.txt"
+    },
+    {
+      "name": "brave_firstparty",
+      "url": "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-lists/brave-firstparty.txt"
+    }
+  ],
+  "dns": [
+    {
+      "name": "anti_ad",
+      "url": "https://anti-ad.net/easylist.txt"
+    },
+    {
+      "name": "adg_base_optimized",
+      "url": "https://filters.adtidy.org/android/filters/2_optimized.txt"
+    },
+    {
+      "name": "adg_privacy_optimized",
+      "url": "https://filters.adtidy.org/android/filters/3_optimized.txt"
+    },
+    {
+      "name": "adg_mobile_11",
+      "url": "https://filters.adtidy.org/android/filters/11_optimized.txt"
+    },
+    {
+      "name": "adg_mobile_15",
+      "url": "https://filters.adtidy.org/android/filters/15_optimized.txt"
+    },
+    {
+      "name": "adg_china_optimized",
+      "url": "https://filters.adtidy.org/android/filters/224_optimized.txt"
+    },
+    {
+      "name": "damengzhu",
+      "url": "https://raw.githubusercontent.com/damengzhu/banad/main/jiekouAD.txt"
+    },
+    {
+      "name": "sm_ad_hosts",
+      "url": "https://raw.githubusercontent.com/2Gardon/SM-Ad-FuckU-hosts/master/SMAdHosts"
+    },
+    {
+      "name": "antiadblock",
+      "url": "https://easylist-downloads.adblockplus.org/antiadblockfilters.txt"
+    },
+    {
+      "name": "hostsvn",
+      "url": "https://raw.githubusercontent.com/bigdargon/hostsVN/master/filters/adservers-all.txt"
+    },
+    {
+      "name": "stevenblack",
+      "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/data/StevenBlack/hosts"
+    },
+    {
+      "name": "someonewhocares",
+      "url": "https://someonewhocares.org/hosts/zero/hosts"
+    }
+  ]
+}
