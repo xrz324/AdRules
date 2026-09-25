@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "environment": {
+    "DNS_PRUNE_ENABLED": "true",
+    "DNS_PRUNE_RESOLVERS_CN": "223.5.5.5,223.6.6.6,114.114.114.114,119.29.29.29",
+    "DNS_PRUNE_RESOLVERS_GLOBAL": "8.8.8.8,8.8.4.4,1.1.1.1,1.0.0.1",
+    "DNS_PRUNE_HEALTH_DOMAIN": "example.com",
+    "DNS_PRUNE_MIN_ONLINE_RESOLVERS": "2",
+    "DNS_PRUNE_MIN_ONLINE_RESOLVERS_CN": "2",
+    "DNS_PRUNE_MIN_ONLINE_RESOLVERS_GLOBAL": "2",
+    "DNS_PRUNE_BUDGET": "16000",
+    "DNS_PRUNE_NEW_BUDGET": "10000",
+    "DNS_PRUNE_RECHECK_BUDGET": "6000",
+    "DNS_PRUNE_CONCURRENCY": "64",
+    "DNS_PRUNE_GLOBAL_CONCURRENCY": "64",
+    "DNS_PRUNE_GLOBAL_INFLIGHT_PER_RESOLVER": "16",
+    "DNS_PRUNE_INFLIGHT_PER_RESOLVER": "1",
+    "DNS_PRUNE_TIMEOUT_MS": "800",
+    "DNS_PRUNE_RETRIES": "0",
+    "DNS_PRUNE_JITTER_MS": "50",
+    "DNS_PRUNE_CN_QUERY_DELAY_MS": "500",
+    "DNS_PRUNE_CN_BACKOFF_BASE_MS": "500",
+    "DNS_PRUNE_CN_BACKOFF_MAX_MS": "8000",
+    "DNS_PRUNE_CN_FAILURE_THRESHOLD": "3",
+    "DNS_PRUNE_CN_COOLDOWN_MS": "10000",
+    "DNS_PRUNE_CN_SLOW_THRESHOLD_MS": "4000",
+    "DNS_PRUNE_CN_MAX_RETRIES": "3",
+    "DNS_PRUNE_REMOVE_NODATA": "false",
+    "DNS_PRUNE_TTL_ALIVE_DAYS": "35",
+    "DNS_PRUNE_TTL_DEAD_DAYS": "14",
+    "DNS_PRUNE_TTL_UNKNOWN_DAYS": "2",
+    "DNS_PRUNE_TTL_DEAD_RECHECK_DAYS": "7",
+    "STRICT_DNS_PRUNE": "false",
+    "STRICT_UPSTREAM_DOWNLOAD": "true",
+    "STRICT_DNS_CONVERTER": "true",
+    "STRICT_MIHOMO_MODIFIERS": "true",
+    "MAX_RULE_DROP_PERCENT": "40"
+  },
+  "runtime": {
+    "dns_prune_cache": "dns_prune_cache.json",
+    "dns_prune_log": "tmp/dns_prune_removed_rules.txt",
+    "download_failed_log": "download_failed.log"
+  },
+  "paths": {
+    "upstream_config": "config/upstream.json",
+    "converter_config": "config/converter.json",
+    "dns_title": "mod/title/dns-title.txt",
+    "dns_ip_cidr": "tmp/dns_ip_cidr_rules.txt",
+    "baseline_dir": "tmp/baseline"
+  },
+  "artifacts": [
+    {
+      "name": "adblock",
+      "path": "adblock.txt",
+      "kind": "adblock",
+      "required": true
+    },
+    {
+      "name": "dns",
+      "path": "dns.txt",
+      "kind": "dns",
+      "required": true
+    },
+    {
+      "name": "singbox",
+      "path": "adrules-singbox.srs",
+      "kind": "binary",
+      "required": true
+    },
+    {
+      "name": "mihomo_mrs",
+      "path": "adrules-mihomo.mrs",
+      "kind": "binary",
+      "required": true
+    },
+    {
+      "name": "mihomo_yaml",
+      "path": "adrules-mihomo.yaml",
+      "kind": "yaml",
+      "required": true
+    }
+  ]
+}
