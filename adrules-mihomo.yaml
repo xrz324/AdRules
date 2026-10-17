@@ -11,7 +11,6 @@ payload:
   - 'AND,((IP-CIDR,142.91.159.250/32),(OR,((DST-PORT,80),(DST-PORT,443))))'
   - 'DOMAIN-REGEX,^(\S+\.)?(webstats?|swebstats?|mywebstats?)\.'
   - 'DOMAIN-REGEX,^(\S+\.)?11599[\da-z]{2,20}\.com$'
-  - 'DOMAIN-REGEX,^(\S+\.)?333[1-9]{2}[0-9]{2}\.com?$'
   - 'DOMAIN-REGEX,^(\S+\.)?5551[0-9]{3}\.com?$'
   - 'DOMAIN-REGEX,^(\S+\.)?61677[\da-z]{0,20}\.com$'
   - 'DOMAIN-REGEX,^(\S+\.)?777\-?partners?\.(net|com)$'
