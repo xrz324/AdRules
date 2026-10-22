@@ -1,0 +1,324 @@
+name: Update Rules
+run-name: "Update rules - ${{ github.event_name }}"
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "script/**"
+      - "config/autoupdate.json"
+      - "config/upstream.json"
+      - "config/converter.json"
+      - "mod/**"
+      - ".github/workflows/autoupdate.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repository-maintenance
+  cancel-in-progress: true
+
+jobs:
+  update-rules:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Show run context
+        env:
+          RUN_TRIGGER: ${{ github.event_name }}
+          RUN_ACTOR: ${{ github.actor }}
+          RUN_REF: ${{ github.ref_name }}
+          RUN_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          short_sha="${RUN_SHA:0:12}"
+          echo "[RUN] trigger=${RUN_TRIGGER} actor=${RUN_ACTOR} ref=${RUN_REF} sha=${short_sha}"
+          echo "[RUN] details=${RUN_URL}"
+
+      - name: Select update mode
+        id: update_mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mode=full
+          reason="${EVENT_NAME} requires a complete update"
+          changed_files=""
+          if [[ "$EVENT_NAME" == "push" \
+            && "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ \
+            && "$EVENT_SHA" =~ ^[0-9a-f]{40}$ \
+            && ! "$BEFORE_SHA" =~ ^0+$ ]] \
+            && git cat-file -e "${BEFORE_SHA}^{commit}" \
+            && git cat-file -e "${EVENT_SHA}^{commit}"; then
+            changed_files="$(git diff --name-only "$BEFORE_SHA" "$EVENT_SHA")"
+            if [[ -n "$changed_files" ]] \
+              && ! grep -qv '^mod/' <<< "$changed_files"; then
+              mode=quick
+              reason="push changes are limited to mod/**"
+            else
+              reason="push includes pipeline or configuration changes"
+            fi
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "[RUN] update-mode=${mode}; reason=${reason}"
+          if [[ -n "$changed_files" ]]; then
+            printf '[RUN] changed-files:\n%s\n' "$changed_files"
+          fi
+
+      - name: Load and export update configuration
+        id: autoupdate_config
+        run: |
+          set -euo pipefail
+          python3 -m script.autoupdate_config \
+            --github-env "$GITHUB_ENV" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Show normalized configuration
+        if: steps.autoupdate_config.outcome == 'success'
+        env:
+          CONFIG_VERSION: ${{ steps.autoupdate_config.outputs.config_version }}
+          UPSTREAM_CONFIG: ${{ steps.autoupdate_config.outputs.upstream_config_path }}
+          CONVERTER_CONFIG: ${{ steps.autoupdate_config.outputs.converter_config_path }}
+          ARTIFACT_ADBLOCK: ${{ steps.autoupdate_config.outputs.artifact_adblock_path }}
+          ARTIFACT_DNS: ${{ steps.autoupdate_config.outputs.artifact_dns_path }}
+          ARTIFACT_SINGBOX: ${{ steps.autoupdate_config.outputs.artifact_singbox_path }}
+          ARTIFACT_MIHOMO_MRS: ${{ steps.autoupdate_config.outputs.artifact_mihomo_mrs_path }}
+          ARTIFACT_MIHOMO_YAML: ${{ steps.autoupdate_config.outputs.artifact_mihomo_yaml_path }}
+        run: |
+          set -euo pipefail
+          echo "::group::[CONFIG] Runtime paths and artifacts"
+          trap 'echo "::endgroup::"' EXIT
+          printf '[CONFIG] version=%s\n' "$CONFIG_VERSION"
+          printf '[CONFIG] upstream=%s converter=%s\n' "$UPSTREAM_CONFIG" "$CONVERTER_CONFIG"
+          printf '[CONFIG] runtime: cache=%s removed-log=%s download-log=%s\n' \
+            "$DNS_PRUNE_CACHE_FILE" "$DNS_PRUNE_REMOVED_LOG" "$DOWNLOAD_FAILED_LOG"
+          printf '[CONFIG] artifacts:\n'
+          printf '  - adblock: %s\n' "$ARTIFACT_ADBLOCK"
+          printf '  - dns: %s\n' "$ARTIFACT_DNS"
+          printf '  - singbox: %s\n' "$ARTIFACT_SINGBOX"
+          printf '  - mihomo-mrs: %s\n' "$ARTIFACT_MIHOMO_MRS"
+          printf '  - mihomo-yaml: %s\n' "$ARTIFACT_MIHOMO_YAML"
+
+      - name: Compute DNS cache policy fingerprint
+        id: dns_prune_cache
+        run: |
+          set -euo pipefail
+          fingerprint="$(python3 -m script.dns_prune --print-policy-fingerprint)"
+          if [[ ! "$fingerprint" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "[DNS][ERROR] Invalid cache policy fingerprint" >&2
+            exit 1
+          fi
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
+          printf 'fingerprint_short=%s\n' "${fingerprint:0:12}" >> "$GITHUB_OUTPUT"
+          echo "[DNS] cache-policy=${fingerprint:0:12}…"
+
+      - name: Restore DNS prune cache
+        id: dns_prune_cache_restore
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.autoupdate_config.outputs.dns_prune_cache_file }}
+          key: dns-prune-cache-${{ runner.os }}-${{ steps.dns_prune_cache.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dns-prune-cache-${{ runner.os }}-${{ steps.dns_prune_cache.outputs.fingerprint }}-
+
+      - name: Report DNS cache restore
+        env:
+          UPDATE_MODE: ${{ steps.update_mode.outputs.mode }}
+          CACHE_HIT: ${{ steps.dns_prune_cache_restore.outputs.cache-hit }}
+          CACHE_KEY: ${{ steps.dns_prune_cache_restore.outputs.cache-primary-key }}
+          CACHE_MATCHED_KEY: ${{ steps.dns_prune_cache_restore.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          if [[ "$CACHE_HIT" == "true" ]]; then
+            echo "[CACHE] restored exact cache: ${CACHE_KEY}"
+          elif [[ -n "$CACHE_MATCHED_KEY" ]]; then
+            echo "[CACHE] restored compatible cache; exact-hit=false: ${CACHE_MATCHED_KEY}"
+          elif [[ "$UPDATE_MODE" == "quick" ]]; then
+            echo "[CACHE] no matching cache found; quick cleanup has no inactive entries to reuse"
+          else
+            echo "[CACHE] no matching cache found; pipeline will create a fresh cache"
+          fi
+
+      - name: Snapshot DNS prune cache
+        if: steps.update_mode.outputs.mode == 'full'
+        env:
+          CACHE_BASELINE_PATH: ${{ runner.temp }}/dns-prune-cache.before.json
+        run: |
+          set -euo pipefail
+          cache_file="${DNS_PRUNE_CACHE_FILE:-}"
+          if [[ -z "$cache_file" ]]; then
+            rm -f -- "$CACHE_BASELINE_PATH"
+            echo "[CACHE] baseline entries=0"
+            exit 0
+          fi
+          python3 -u -m script.dns_cache_report snapshot \
+            --cache "$cache_file" \
+            --snapshot "$CACHE_BASELINE_PATH"
+
+      - name: Build rule artifacts
+        id: build_pipeline
+        env:
+          UPDATE_MODE: ${{ steps.update_mode.outputs.mode }}
+        run: |
+          set -euo pipefail
+          args=(build --config config/autoupdate.json --verbose --update-mode "$UPDATE_MODE")
+          python3 -u -m script.pipeline "${args[@]}"
+
+      - name: Inspect DNS prune outputs
+        id: dns_prune_cache_ready
+        env:
+          CACHE_BASELINE_PATH: ${{ runner.temp }}/dns-prune-cache.before.json
+          UPDATE_MODE: ${{ steps.update_mode.outputs.mode }}
+        run: |
+          set -euo pipefail
+          if [[ -f "$DNS_PRUNE_CACHE_FILE" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            if [[ "$UPDATE_MODE" == "full" ]]; then
+              python3 -u -m script.dns_cache_report compare \
+                --before "$CACHE_BASELINE_PATH" \
+                --after "$DNS_PRUNE_CACHE_FILE" \
+                --github-output "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "[DNS] cache not generated: $DNS_PRUNE_CACHE_FILE"
+          fi
+          if [[ "$UPDATE_MODE" != "full" || ! -f "$DNS_PRUNE_CACHE_FILE" ]]; then
+            {
+              echo "inactive_entries=0"
+              echo "inactive_added=0"
+              echo "inactive_removed=0"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -f "$DNS_PRUNE_REMOVED_LOG" ]]; then
+            removed_rules="$(wc -l < "$DNS_PRUNE_REMOVED_LOG" | tr -d ' ')"
+          else
+            removed_rules=0
+          fi
+          echo "removed_rules=$removed_rules" >> "$GITHUB_OUTPUT"
+          echo "[DNS] pruned-rules=${removed_rules} report=${DNS_PRUNE_REMOVED_LOG}"
+
+      - name: Save DNS prune cache
+        id: save_dns_prune_cache
+        if: success() && steps.update_mode.outputs.mode == 'full' && steps.dns_prune_cache_ready.outputs.exists == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.autoupdate_config.outputs.dns_prune_cache_file }}
+          key: ${{ steps.dns_prune_cache_restore.outputs.cache-primary-key }}
+
+      - name: Upload DNS prune report
+        id: dns_prune_log_upload
+        if: always() && steps.update_mode.outputs.mode == 'full' && steps.autoupdate_config.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dns-prune-report-${{ github.run_id }}
+          path: ${{ steps.autoupdate_config.outputs.dns_prune_removed_log }}
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Stage generated artifacts
+        id: stage_artifacts
+        run: |
+          set -euo pipefail
+          echo "::group::[PUBLISH] Stage generated artifacts"
+          trap 'echo "::endgroup::"' EXIT
+          python3 -u -m script.publish_pipeline --config config/autoupdate.json
+          staged_files="$(git diff --cached --name-only)"
+          if [[ -n "$staged_files" ]]; then
+            staged_count="$(printf '%s\n' "$staged_files" | sed '/^$/d' | wc -l | tr -d ' ')"
+            printf '[PUBLISH] staged-files=%s\n%s\n' "$staged_count" "$staged_files"
+          else
+            staged_count=0
+            echo "[PUBLISH] staged-files=0; status=unchanged"
+          fi
+          echo "staged_count=$staged_count" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push generated artifacts
+        id: publish
+        run: |
+          set -euo pipefail
+          echo "::group::[GIT] Commit and push"
+          trap 'echo "::endgroup::"' EXIT
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          changed_files="$(git diff --cached --name-only)"
+          if [[ -z "$changed_files" ]]; then
+            echo "[GIT] no generated changes; main is up to date"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_count="$(printf '%s\n' "$changed_files" | sed '/^$/d' | wc -l | tr -d ' ')"
+          printf '[GIT] committing %s changed files:\n%s\n' "$changed_count" "$changed_files"
+          commit_message="Update rules at $(TZ=UTC-8 date +'%Y-%m-%d %H:%M')"
+          git commit -m "$commit_message"
+          local_commit_sha="$(git rev-parse --short HEAD)"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "[GIT] local-commit=${local_commit_sha} message=${commit_message}"
+
+          if ! git push origin HEAD:main; then
+            echo "::warning::[GIT] Push was rejected; rebasing onto origin/main once"
+            git fetch origin main
+            if git rebase origin/main; then
+              git push origin HEAD:main
+              echo "[GIT] push succeeded after rebase"
+            else
+              git rebase --abort || true
+              echo "[GIT][ERROR] Rebase failed; rerun the workflow"
+              exit 1
+            fi
+          else
+            echo "[GIT] push succeeded"
+          fi
+          published_sha="$(git rev-parse --short HEAD)"
+          echo "commit_sha=$published_sha" >> "$GITHUB_OUTPUT"
+          echo "[GIT] published-commit=${published_sha}"
+
+      - name: Write workflow summary
+        if: always()
+        env:
+          COMMIT_SHA: ${{ steps.publish.outputs.commit_sha }}
+          UPDATE_MODE: ${{ steps.update_mode.outputs.mode }}
+          INACTIVE_ENTRIES: ${{ steps.dns_prune_cache_ready.outputs.inactive_entries }}
+          INACTIVE_ADDED: ${{ steps.dns_prune_cache_ready.outputs.inactive_added }}
+          INACTIVE_REMOVED: ${{ steps.dns_prune_cache_ready.outputs.inactive_removed }}
+          REMOVED_RULES: ${{ steps.dns_prune_cache_ready.outputs.removed_rules }}
+        run: |
+          set -euo pipefail
+          {
+            printf '\n## Update summary\n\n'
+            printf '| Metric | Value |\n| --- | --- |\n'
+            printf '| Update mode | `%s` |\n' "${UPDATE_MODE:-unknown}"
+            if [[ "$UPDATE_MODE" == "quick" ]]; then
+              printf '| DNS inactive probe | skipped |\n'
+              printf '| DNS cached inactive rules pruned | `%s` |\n' "${REMOVED_RULES:-0}"
+            else
+              printf '| Inactive cache entries | `%s` |\n' "${INACTIVE_ENTRIES:-0}"
+              printf '| Inactive cache delta | +%s / -%s |\n' \
+                "${INACTIVE_ADDED:-0}" "${INACTIVE_REMOVED:-0}"
+              printf '| DNS pruned rules | `%s` |\n' "${REMOVED_RULES:-0}"
+            fi
+            if [[ -n "${COMMIT_SHA:-}" ]]; then
+              printf '| Published commit | `%s` |\n' "$COMMIT_SHA"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
